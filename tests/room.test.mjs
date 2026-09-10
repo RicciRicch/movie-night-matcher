@@ -86,3 +86,14 @@ test("names must be distinct and nonempty; restart clears all voter ballots", ()
   assert.equal(restarted.playerIndex, 0);
   assert.deepEqual(restarted.votes, [[], [], []]);
 });
+
+test("a recommendation round keeps the group and replaces the movie list", () => {
+  const finished = play([[true, false, true], [true, true, false]]);
+  const recommendations = fixtures.map((item) => ({ ...item, id: item.id + 100, title: `Recommended ${item.id}` }));
+  const nextRound = startRound(finished, recommendations);
+  assert.equal(nextRound.stage, "handover");
+  assert.deepEqual(nextRound.players, finished.players);
+  assert.deepEqual(nextRound.movies, recommendations);
+  assert.deepEqual(nextRound.votes, [[], []]);
+  assert.equal(nextRound.playerIndex, 0);
+});

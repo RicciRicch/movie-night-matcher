@@ -107,6 +107,98 @@ export async function discoverMovies(filters: DiscoveryFilters, fetcher: Fetcher
   }
   return movies.slice(0, filters.limit);
 }
+
+export type RecommendationFilters = {
+  seeds: number[];
+  exclude: number[];
+  country: string;
+  services: string[];
+  limit: number;
+};
+
+function movieIds(value: unknown, maximum: number) {
+  if (!Array.isArray(value) || value.length > maximum ||
+      !value.every((id) => typeof id === "number" && Number.isSafeInteger(id) && id > 0)) return null;
+  return [...new Set(value as number[])];
+}
+
+export function parseRecommendationFilters(value: unknown): RecommendationFilters {
+  if (!object(value) || typeof value.country !== "string")
+    throw new MovieDataError("Choose valid movies to build the next round.", 400, "INVALID_FILTERS");
+  validateCountry(value.country);
+  const seeds = movieIds(value.seeds, 3);
+  const exclude = movieIds(value.exclude, 20);
+  if (!seeds?.length || !exclude || !Array.isArray(value.services) || value.services.length > 30 ||
+      !value.services.every((id) => typeof id === "string" && /^\d{1,6}$/.test(id)) ||
+      typeof value.limit !== "number" || ![5, 10, 15].includes(value.limit))
+    throw new MovieDataError("Choose valid movies to build the next round.", 400, "INVALID_FILTERS");
+  return {
+    seeds,
+    exclude,
+    country: value.country,
+    services: [...new Set(value.services)] as string[],
+    limit: value.limit,
+  };
+}
+
+async function subscriptionProviderIds(id: number, country: string, fetcher: Fetcher) {
+  const data = await request(`/movie/${id}/watch/providers`, fetcher);
+  const region = object(data.results) && object(data.results[country]) ? data.results[country] : {};
+  if (!Array.isArray(region.flatrate)) return [];
+  return region.flatrate.filter(object)
+    .map((provider) => provider.provider_id)
+    .filter((providerId): providerId is number => typeof providerId === "number" && Number.isSafeInteger(providerId));
+}
+
+export async function recommendMovies(filters: RecommendationFilters, fetcher: Fetcher = fetch) {
+  if (filters.services.length) {
+    const available = await getProviders(filters.country, fetcher);
+    if (filters.services.some((id) => !available.some((provider) => provider.id === id)))
+      throw new MovieDataError("A selected service isn’t listed in this country. Update your services and try again.", 400, "INVALID_FILTERS");
+  }
+
+  const recommendationLists = await Promise.all(filters.seeds.map((id) =>
+    request(`/movie/${id}/recommendations?language=en-US&page=1`, fetcher)));
+  const excluded = new Set([...filters.exclude, ...filters.seeds]);
+  const ranked = new Map<number, { movie: Movie; score: number; first: number }>();
+  const today = new Date().toISOString().slice(0, 10);
+
+  recommendationLists.forEach((data, seedIndex) => {
+    if (!Array.isArray(data.results))
+      throw new MovieDataError("Similar movie picks couldn’t be loaded. Please try again.");
+    data.results.forEach((item, resultIndex) => {
+      const releaseDate = object(item) && typeof item.release_date === "string" ? item.release_date : "";
+      const movie = normalizeMovie(item);
+      if (!movie || excluded.has(movie.id) || (releaseDate && releaseDate > today)) return;
+      const existing = ranked.get(movie.id);
+      const relevance = 100 + Math.max(0, 20 - resultIndex) + (filters.seeds.length - seedIndex) * 5;
+      ranked.set(movie.id, {
+        movie,
+        score: (existing?.score ?? 0) + relevance,
+        first: existing?.first ?? seedIndex * 100 + resultIndex,
+      });
+    });
+  });
+
+  const candidates = [...ranked.values()]
+    .sort((a, b) => b.score - a.score || a.first - b.first || a.movie.id - b.movie.id)
+    .map((entry) => entry.movie);
+  if (!filters.services.length) return candidates.slice(0, filters.limit);
+
+  const selected = new Set(filters.services.map(Number));
+  const matches: Movie[] = [];
+  // Check the strongest candidates in small batches so provider filtering stays responsive.
+  for (let index = 0; index < Math.min(candidates.length, 30) && matches.length < filters.limit; index += 6) {
+    const batch = candidates.slice(index, index + 6);
+    const providerLists = await Promise.all(batch.map((movie) =>
+      subscriptionProviderIds(movie.id, filters.country, fetcher)));
+    batch.forEach((movie, batchIndex) => {
+      if (matches.length < filters.limit && providerLists[batchIndex].some((id) => selected.has(id))) matches.push(movie);
+    });
+  }
+  return matches;
+}
+
 export async function watchProviders(id: number, country: string, fetcher: Fetcher = fetch) {
   validateCountry(country);
   if (!Number.isSafeInteger(id) || id < 1) throw new MovieDataError("Choose a valid movie.", 400, "INVALID_MOVIE");

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseFilters, discoverQuery, normalizeMovie, discoverMovies, getProviders, watchProviders, apiError } from "../lib/tmdb.ts";
+import { parseFilters, discoverQuery, normalizeMovie, discoverMovies, getProviders, watchProviders, apiError, parseRecommendationFilters, recommendMovies } from "../lib/tmdb.ts";
 
 const filters = { country: "RS", genre: "comedy", services: ["8", "9"], limit: 5 };
 const movie = { id: 123, title: "Test response", release_date: "2025-01-01", genre_ids: [35], overview: "An upstream synopsis.", poster_path: "/abc.jpg", vote_average: 7.2, vote_count: 200 };
@@ -85,6 +85,52 @@ test("watch availability separates subscriptions, rental and purchase by country
     assert.deepEqual(result.rent, ["Rental B"]);
     assert.deepEqual(result.buy, []);
     assert.equal(result.link, "https://www.themoviedb.org/movie/123/watch?locale=RS");
+  } finally {
+    if (previous === undefined) delete process.env.TMDB_READ_ACCESS_TOKEN;
+    else process.env.TMDB_READ_ACCESS_TOKEN = previous;
+  }
+});
+
+test("group recommendations combine seed lists, rank overlap, and remove shown or unreleased movies", async () => {
+  const previous = process.env.TMDB_READ_ACCESS_TOKEN;
+  process.env.TMDB_READ_ACCESS_TOKEN = "test-only-token";
+  const makeMovie = (id, title = `Movie ${id}`) => ({ ...movie, id, title });
+  const filters = parseRecommendationFilters({ seeds: [1, 2], exclude: [123], country: "RS", services: [], limit: 5 });
+  const seen = [];
+  try {
+    const movies = await recommendMovies(filters, async (url) => {
+      seen.push(url);
+      if (url.includes("/movie/1/recommendations")) return response({ results: [
+        makeMovie(123, "Already shown"), makeMovie(900, "Shared suggestion"), makeMovie(901),
+        { ...makeMovie(903), release_date: "2999-01-01" }, { ...makeMovie(904), adult: true },
+      ] });
+      return response({ results: [makeMovie(902), makeMovie(900, "Shared suggestion")] });
+    });
+    assert.deepEqual(movies.map((item) => item.id), [900, 901, 902]);
+    assert.equal(seen.length, 2);
+    assert.ok(seen.every((url) => url.includes("/recommendations?language=en-US&page=1")));
+    assert.throws(() => parseRecommendationFilters({ ...filters, seeds: [] }));
+    assert.throws(() => parseRecommendationFilters({ ...filters, seeds: [1, 2, 3, 4] }));
+  } finally {
+    if (previous === undefined) delete process.env.TMDB_READ_ACCESS_TOKEN;
+    else process.env.TMDB_READ_ACCESS_TOKEN = previous;
+  }
+});
+
+test("second-round recommendations honor selected subscription services", async () => {
+  const previous = process.env.TMDB_READ_ACCESS_TOKEN;
+  process.env.TMDB_READ_ACCESS_TOKEN = "test-only-token";
+  const makeMovie = (id) => ({ ...movie, id, title: `Movie ${id}` });
+  const filters = parseRecommendationFilters({ seeds: [1], exclude: [1], country: "RS", services: ["8"], limit: 5 });
+  try {
+    const movies = await recommendMovies(filters, async (url) => {
+      if (url.includes("watch/providers/movie")) return response({ results: [{ provider_id: 8, provider_name: "Service A" }] });
+      if (url.includes("/recommendations")) return response({ results: [makeMovie(900), makeMovie(901)] });
+      if (url.includes("/movie/900/watch/providers")) return response({ results: { RS: { flatrate: [{ provider_id: 9 }] } } });
+      if (url.includes("/movie/901/watch/providers")) return response({ results: { RS: { flatrate: [{ provider_id: 8 }] } } });
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    assert.deepEqual(movies.map((item) => item.id), [901]);
   } finally {
     if (previous === undefined) delete process.env.TMDB_READ_ACCESS_TOKEN;
     else process.env.TMDB_READ_ACCESS_TOKEN = previous;

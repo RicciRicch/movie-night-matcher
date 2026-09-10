@@ -38,6 +38,8 @@ function MovieRoom() {
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recommendationBusy, setRecommendationBusy] = useState(false);
+  const [recommendationError, setRecommendationError] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
   const [providerState, setProviderState] = useState<{ country: string; options: Provider[]; error: string; code: string }>({ country: "", options: [], error: "", code: "" });
   const [retry, setRetry] = useState(0);
@@ -103,9 +105,32 @@ function MovieRoom() {
     } catch (failure) { setError(failure instanceof Error && failure.name !== "TimeoutError" ? failure.message : "That took longer than expected. Please try again."); }
     finally { setBusy(false); requestLock.current = false; }
   }
+  async function findSimilarMovies() {
+    if (requestLock.current || !shortlist.length) return;
+    requestLock.current = true; setRecommendationBusy(true); setRecommendationError("");
+    try {
+      const response = await fetch("/api/recommendations", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seeds: shortlist.slice(0, 3).map((item) => item.id),
+          exclude: room.movies.map((item) => item.id),
+          country: room.country,
+          services: room.services,
+          limit: room.roundSize,
+        }),
+        signal: AbortSignal.timeout(30000) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Couldn’t find similar movies. Please try again.");
+      if (Array.isArray(data.movies) && !data.movies.length)
+        throw new Error(room.services.length ? "No new recommendations are included with your selected services. Try editing the room and choosing any service." : "TMDB didn’t find enough new recommendations from these likes. Try a different movie set.");
+      if (!validMovies(data.movies)) throw new Error("The recommendation list couldn’t be loaded. Please try again.");
+      setRoom(startRound(room, data.movies));
+    } catch (failure) {
+      setRecommendationError(failure instanceof Error && failure.name !== "TimeoutError" ? failure.message : "That took longer than expected. Please try again.");
+    } finally { setRecommendationBusy(false); requestLock.current = false; }
+  }
   function editRoom() {
     setRoom((previous) => ({ ...previous, stage: "setup", movies: [], playerIndex: 0, votes: previous.players.map(() => []) }));
-    setStep(0); setConfirmReset(false); setError("");
+    setStep(0); setConfirmReset(false); setError(""); setRecommendationError("");
   }
 
   if (room.stage === "setup") return <div className="setup-layout">
@@ -172,7 +197,7 @@ function MovieRoom() {
   </div>;
 
   return <div className={"round-layout " + (room.stage === "results" ? "results-layout" : "")}>
-    <div className="round-top"><span className="eyebrow">YOUR MOVIE NIGHT</span><button type="button" className="text-button" onClick={() => setConfirmReset(true)}>Edit room</button></div>
+    <div className="round-top"><span className="eyebrow">YOUR MOVIE NIGHT</span><button type="button" className="text-button" disabled={recommendationBusy} onClick={() => setConfirmReset(true)}>Edit room</button></div>
     <div className="room-strip"><div className="avatar-stack">{room.players.slice(0, 5).map((name, i) => <span key={i} className={"avatar tone-" + i % 4} title={name}>{name[0].toUpperCase()}</span>)}</div><div><strong>{room.players.length} people · {room.movies.length} movies</strong><p>{countryNames[room.country]} · {genreNames[room.genre]}</p></div><span className="finished-count" role="status">{completed}/{room.players.length} finished</span></div>
 
     {room.stage === "handover" && <section className="handover-card">
@@ -198,7 +223,12 @@ function MovieRoom() {
       <div className="results-heading"><p className="eyebrow">{matches.length ? "THE GROUP HAS SPOKEN" : "A LITTLE COMPROMISE?"}</p><h1 ref={heading} tabIndex={-1}>{matches.length ? <>It’s a <em>match.</em></> : <>Your shared <em>shortlist.</em></>}</h1><p>{matches.length ? "Everyone said yes. All that’s left is the popcorn." : shortlist.length ? "No unanimous yes this time. These got the most love." : "No likes this round. Try a different mood and a fresh set of movies."}</p></div>
       <div className="results-grid">{(matches.length ? matches : shortlist).map((item) => <article key={item.id} className="result-card"><Poster movie={item} /><div className="result-copy"><span className="match-badge">{item.likes === room.players.length ? "♥ Everyone’s in" : item.likes + " of " + room.players.length + " liked"}</span><h2>{item.title}</h2><p className="movie-details">{item.details}</p>{item.rating !== null && <p className="rating">★ {item.rating.toFixed(1)} <span>on TMDB</span></p>}<WatchOptions id={item.id} country={room.country} /></div></article>)}</div>
       {!matches.length && shortlist.length > 1 && <p className="fine-print">Movies with equal votes are tied.</p>}
-      <div className="results-actions"><button type="button" className="button primary" onClick={editRoom}>Plan another movie night <span aria-hidden="true">→</span></button><button type="button" className="text-button" onClick={() => setRoom((previous) => startRound(previous))}>Vote on these movies again</button></div>
+      <div className="results-actions">
+        {shortlist.length > 0 && <div className="recommendation-action"><span aria-hidden="true">✦</span><div><strong>Want a closer match?</strong><p>Use the group’s likes to create a fresh second round.</p></div><button type="button" className="button primary" disabled={recommendationBusy} onClick={findSimilarMovies}>{recommendationBusy ? "Finding similar movies…" : "Find similar movies"} {!recommendationBusy && <span aria-hidden="true">→</span>}</button></div>}
+        {recommendationError && <p role="alert" className="error-message recommendation-error">{recommendationError}</p>}
+        <button type="button" className={"button " + (shortlist.length ? "secondary" : "primary")} disabled={recommendationBusy} onClick={editRoom}>Plan another movie night <span aria-hidden="true">→</span></button>
+        <button type="button" className="text-button" disabled={recommendationBusy} onClick={() => { setRecommendationError(""); setRoom((previous) => startRound(previous)); }}>Vote on these movies again</button>
+      </div>
     </>}
 
     {confirmReset && <div className="reset-panel" role="region" aria-label="Edit room confirmation"><h2>Back to planning?</h2><p>Your people and preferences will stay. This round’s votes will be cleared.</p><div><button type="button" className="button primary" onClick={editRoom}>Yes, edit the room</button><button type="button" className="button secondary" onClick={() => setConfirmReset(false)}>Keep this round</button></div></div>}

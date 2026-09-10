@@ -153,6 +153,11 @@ select { margin-top: 9px; padding: 11px 10px; width: 100%; color: var(--ink); ba
 .watch-options a { display: inline-block; font-size: 11px; margin-top: 9px; }
 .watch-options small { display: block; font-size: 9px; color: #8c9383; margin-top: 7px; }
 .results-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 34px; }
+.recommendation-action { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; padding: 20px; margin-bottom: 8px; border: 1px solid #d7dfcf; border-radius: 15px; background: #eef3e8; }
+.recommendation-action > span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #fffefa; color: #ae614b; font-size: 18px; }
+.recommendation-action strong { font-size: 13px; }
+.recommendation-action p { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.recommendation-error { width: 100%; margin-top: 0; }
 .reset-panel { padding: 24px; border: 1px solid #d9c9ac; border-radius: 15px; background: #fff8e9; margin-top: 28px; }
 .reset-panel h2 { font-size: 18px; }
 .reset-panel p { margin-top: 9px; font-size: 12px; line-height: 1.7; color: var(--muted); }
@@ -175,6 +180,7 @@ select { margin-top: 9px; padding: 11px 10px; width: 100%; color: var(--ink); ba
  .movie-card .poster img { object-fit: contain; background: #16251f; } .movie-copy { padding: 25px; } .movie-copy h2 { font-size: 30px; }
  .vote-actions .button { padding: 14px 12px; } .undo-row > span { display: none; } .results-heading h1 { font-size: 44px; letter-spacing: -1.8px; }
  .result-card { grid-template-columns: 105px 1fr; } .result-copy { padding: 17px; } .result-copy h2 { font-size: 22px; } .result-card .poster { min-height: 180px; }
+ .recommendation-action { grid-template-columns: auto 1fr; } .recommendation-action .button { grid-column: 1 / -1; width: 100%; }
  .reset-panel > div { flex-direction: column; } .result-card .poster-fallback { padding: 12px; } .result-card .poster-fallback p { font-size: 18px; }
 }
 @media(prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }

@@ -21,6 +21,7 @@ Movie suggestions, posters, ratings, and streaming availability come from [TMDB]
    - If there is no match, the app ranks films by the number of likes.
    - If everyone passed on everything, start another night with broader preferences.
 10. For a result, select **Where can we watch?** to check subscription, rental, and purchase options for the chosen country.
+11. Select **Find similar movies** to turn the group’s highest-liked films into a fresh second round. The same people vote again on new recommendations, and previously shown movies are removed.
 
 You can undo the latest vote before submitting a turn. Refreshing the browser preserves the room, current voter, movie list, and completed votes on that device.
 
@@ -33,6 +34,7 @@ The app currently supports:
 - Live TMDB movie discovery with posters, summaries, genres, release years, and TMDB ratings.
 - Country-specific streaming-service filters.
 - Unanimous matches and a ranked fallback shortlist.
+- A preference-based second round built from the group’s highest-liked movies.
 - Streaming, rental, and purchase availability after voting.
 - Browser storage for refresh recovery.
 - Responsive desktop and mobile layouts.
@@ -92,12 +94,15 @@ TMDB can return fewer movies than the requested round length when the filters ar
 
 The returned list is shuffled once and saved with the room. Every voter therefore sees the same films in the same order, even after a refresh. Starting a new movie night requests a fresh list.
 
-These are preference-based discovery suggestions rather than personalized AI recommendations. The app does not use viewing history or user accounts.
+After voting, **Find similar movies** uses up to three of the group’s highest-liked films as TMDB recommendation seeds. Movies suggested by more than one seed rank higher, previously shown and unreleased movies are removed, and selected subscription services still apply. The new list starts another private pass-and-play round with the same voters.
+
+These are preference-based recommendations rather than personalized AI recommendations. The app does not use viewing history or user accounts.
 
 ## Project structure
 
 - `app/page.tsx` contains the setup, voting, handover, and results screens.
 - `app/api/movies/route.ts` securely requests movie discovery from TMDB.
+- `app/api/recommendations/route.ts` creates a second-round list from the group’s likes.
 - `app/api/providers/route.ts` loads streaming services for the selected country.
 - `app/api/watch/route.ts` loads availability for result movies.
 - `components/MovieCard.tsx` displays a movie and its voting controls.
@@ -120,7 +125,7 @@ These are preference-based discovery suggestions rather than personalized AI rec
 Run the automated tests:
 
 ```cmd
-node --test tests\room.test.mjs tests\tmdb.test.mjs
+npm test
 ```
 
 Check the code style:
